@@ -1,0 +1,12 @@
+name: thingsboard
+summary: This charm will install ThingsBoard.
+maintainer: Dixan Peña Peña <dixan.pena@tengu.io>
+description: |
+   ThingsBoard is...
+tags:
+  - monitoring
+subordinate: false
+requires:
+  postgres:
+    interface: pgsql
+series: ['xenial']
