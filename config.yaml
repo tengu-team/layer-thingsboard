@@ -1,0 +1,19 @@
+options:
+  port:
+    type: int
+    default: 8080
+    description: |
+      ThingsBoard Web UI port.
+  install-type:
+    type: string
+    default: "full"
+    description: |
+      Type of install to perform. Valid options are 'jre' or 'full'. The
+      default is 'jre', which will install the Java Runtime Environment
+      (JRE). Setting this to 'full' will install the Java Development
+      Kit (JDK) in addition to the JRE.
+  java-major:
+    type: string
+    default: "8"
+    description: |
+      Major version of Java. Defaults to 8. Supported versions are 'Oracle java 8' and 'openjdk 6/7/8'
