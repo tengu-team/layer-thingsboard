@@ -1,0 +1,6 @@
+includes: ['layer:basic', 'layer:java', 'layer:apt', 'interface:pgsql']
+options:
+  apt:
+    packages:
+      - 'python3-pip'
+repo: ''
