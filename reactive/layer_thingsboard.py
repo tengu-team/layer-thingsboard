@@ -18,70 +18,87 @@
 import os
 import subprocess
 import charmhelpers.fetch.archiveurl
+from charmhelpers.core import unitdata
+from charmhelpers.core.templating import render
 from charms.reactive import when, when_not, set_flag
-from charmhelpers.core.host import service_start, service_restart
+from charmhelpers.core.host import service_start, service_restart, service_stop
 from charmhelpers.core.hookenv import status_set, open_port, close_port, config, local_unit
+
+kv = unitdata.kv()
 
 ########################################################################
 # Installation
 ########################################################################
-@when('java.installed', 'apt.installed.python3-pip')
-@when_not('ruamel.installed')
-def install_pyyaml():
-    install_ruamel()
-    set_flag('ruamel.installed')
-
-@when('ruamel.installed')
-@when_not('thingsboard.installed')
+@when('java.installed')
+@when_not('thingsboard.downloaded')
 def install_service():
     install_thingsboard()
-    status_set('active', 'ThingsBoard is running and uses HSQLDB.')
-    set_flag('thingsboard.installed')
+    kv.set('initial_state', True)
+    status_set('blocked', 'Waiting for relation with PostgreSQL')
+    set_flag('thingsboard.downloaded')
 
-@when('thingsboard.installed', 'config.changed')
-def change_configuration():
-    status_set('maintenance', 'configuring ThingsBoard')
-    conf = config()
-    change_config(conf)
-    status_set('active', 'ThingsBoard is running and uses HSQLDB.')
-
-@when('thingsboard.installed', 'postgres.connected')
+@when('thingsboard.downloaded', 'postgres.connected')
 @when_not('postgresdatabase.created')
 def configure_database(postgres):
     database = local_unit().replace('/', '_')
     postgres.set_database(database)
-    status_set('active', 'postgres database "{}" has been created'.format(database))
+    status_set('maintenance', 'Postgres database "{}" has been created'.format(database))
     set_flag('postgresdatabase.created')
 
 @when('postgresdatabase.created', 'postgres.master.available')
 @when_not('thingsboardpostgres.connected')
 def connect_thingsboard(postgres):
-    from ruamel.yaml import YAML
-    yaml = YAML(typ='rt')
-    yaml.preserve_quotes = True
+    port = config()['port']
     conn_str = postgres.master
-    with open('templates/thingsboard.yml', 'r') as f:
-        data = yaml.load(f)
-    data['spring']['jpa']['database-platform'] = "${SPRING_JPA_DATABASE_PLATFORM:org.hibernate.dialect.PostgreSQLDialect}"
-    data['spring']['datasource']['driverClassName'] = "${SPRING_DRIVER_CLASS_NAME:org.postgresql.Driver}"
-    data['spring']['datasource']['url'] = "${SPRING_DATASOURCE_URL:jdbc:postgresql://" + conn_str.host + ":" + conn_str.port + "/" + conn_str.dbname + "}"
-    data['spring']['datasource']['username'] = "${SPRING_DATASOURCE_USERNAME:" + conn_str.user + "}"
-    data['spring']['datasource']['password'] = "${SPRING_DATASOURCE_PASSWORD:" + conn_str.password + "}"
-    with open('/etc/thingsboard/conf/thingsboard.yml', 'w') as wf:
-        yaml.dump(data, wf)
-    service_restart('thingsboard')
-    status_set('active', 'ThingsBoard is running and uses PostgreSQL.')
+    render(source='thingsboard.yml',
+           target='/etc/thingsboard/conf/thingsboard.yml',
+           context={
+               'port': port,
+               'host': conn_str.host,
+               'psqlport': conn_str.port,
+               'database': conn_str.dbname,
+               'username': conn_str.user,
+               'password': conn_str.password
+           })
+    status_set('maintenance', 'Relation with PostgreSQL has been established')
     set_flag('thingsboardpostgres.connected')
+
+@when('thingsboardpostgres.connected')
+@when_not('thingsboard.started')
+def start_thingsboard():
+    port = config()['port']
+    open_port(port)
+    if kv.get('initial_state'):
+        subprocess.check_call(['/usr/share/thingsboard/bin/install/install.sh'])
+        service_start('thingsboard')
+        kv.set('initial_state', False)
+    else:
+        service_restart('thingsboard')
+    status_set('active', 'ThingsBoard is running and uses PostgreSQL.')
+    set_flag('thingsboard.started')
+
+@when('thingsboard.started', 'config.changed', 'postgres.master.available')
+def change_configuration(postgres):
+    status_set('maintenance', 'Configuring ThingsBoard')
+    conf = config()
+    conn_str = postgres.master
+    change_config(conf, conn_str)
+    status_set('active', 'ThingsBoard is running and uses PostgreSQL')
+
+@when('thingsboard.started')
+@when_not('postgres.connected')
+def stop_service():
+    service_stop('thingsboard')
+    port = config()['port']
+    close_port(config()['port'])
+    status_set('blocked', 'Waiting for relation with PostgreSQL')
+    set_flag('thingsboard.downloaded')
 
 ########################################################################
 # Auxiliary methods
 ########################################################################
-def install_ruamel():
-    status_set('maintenance', 'installing ruamel')
-    subprocess.check_call(['sudo', 'pip3', 'install', 'pyyaml', 'ruamel.yaml'])
-
 def install_thingsboard():
-    status_set('maintenance', 'installing ThingsBoard')
+    status_set('maintenance', 'Installing ThingsBoard')
     thingsboard_path = '/opt/thingsboard'
     if not os.path.isdir(thingsboard_path):
         os.mkdir(thingsboard_path)
@@ -89,23 +106,21 @@ def install_thingsboard():
     fetch_handler.download('https://github.com/thingsboard/thingsboard/releases/download/v1.3.1/thingsboard-1.3.1.deb',
                             thingsboard_path + '/thingsboard-1.3.1.deb')
     subprocess.check_call(['dpkg', '-i', '{}/thingsboard-1.3.1.deb'.format(thingsboard_path)])
-    subprocess.check_call(['/usr/share/thingsboard/bin/install/install.sh'])
-    service_start('thingsboard')
-    port = config()['port']
-    open_port(port)
 
-def change_config(conf):
+def change_config(conf, conn_str):
     port = conf['port']
     old_port = conf.previous('port')
     if old_port is not None and old_port != port:
-        from ruamel.yaml import YAML
-        yaml = YAML(typ='rt')
-        yaml.preserve_quotes = True
-        with open('templates/thingsboard.yml', 'r') as f:
-            data = yaml.load(f)
-        data['server']['port'] = "${HTTP_BIND_PORT:" + str(port) + "}"
-        with open('/etc/thingsboard/conf/thingsboard.yml', 'w') as wf:
-            yaml.dump(data, wf)
+        render(source='thingsboard.yml',
+               target='/etc/thingsboard/conf/thingsboard.yml',
+               context={
+                   'port': port,
+                   'host': conn_str.host,
+                   'psqlport': conn_str.port,
+                   'database': conn_str.dbname,
+                   'username': conn_str.user,
+                   'password': conn_str.password
+               })
         close_port(old_port)
         open_port(port)
         service_restart('thingsboard')
