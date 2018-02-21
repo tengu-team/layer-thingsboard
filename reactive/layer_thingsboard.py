@@ -18,22 +18,19 @@
 import os
 import subprocess
 import charmhelpers.fetch.archiveurl
-from charmhelpers.core import unitdata
 from charmhelpers.core.templating import render
-from charms.reactive import when, when_not, set_flag
+from charms.reactive import when, when_not, set_flag, clear_flag
 from charmhelpers.core.host import service_start, service_restart, service_stop
 from charmhelpers.core.hookenv import status_set, open_port, close_port, config, local_unit
-
-kv = unitdata.kv()
 
 ########################################################################
 # Installation
 ########################################################################
 @when('java.installed')
 @when_not('thingsboard.downloaded')
-def install_service():
-    install_thingsboard()
-    kv.set('initial_state', True)
+def download_service():
+    download_thingsboard()
+    #kv.set('initial_state', True)
     status_set('blocked', 'Waiting for relation with PostgreSQL')
     set_flag('thingsboard.downloaded')
 
@@ -63,18 +60,30 @@ def connect_thingsboard(postgres):
     status_set('maintenance', 'Relation with PostgreSQL has been established')
     set_flag('thingsboardpostgres.connected')
 
-@when('thingsboardpostgres.connected')
+@when('thingsboardpostgres.connected', 'postgres.master.available')
 @when_not('thingsboard.started')
-def start_thingsboard():
+def start_thingsboard(postgres):
+    import psycopg2
     port = config()['port']
-    open_port(port)
-    if kv.get('initial_state'):
-        subprocess.check_call(['/usr/share/thingsboard/bin/install/install.sh'])
-        service_start('thingsboard')
-        kv.set('initial_state', False)
-    else:
-        service_restart('thingsboard')
-    status_set('active', 'ThingsBoard is running and uses PostgreSQL.')
+    conn_str = postgres.master
+    try:
+        conn = psycopg2.connect(database=conn_str.dbname, user = conn_str.user, password = conn_str.password, host = conn_str.host, port = conn_str.port)
+        cur = conn.cursor()
+        cur.execute("select relname from pg_class where relkind='r' and relname !~ '^(pg_|sql_)';")
+        tables = cur.fetchall()
+        if len(tables) == 0:
+            subprocess.check_call(['sudo','/usr/share/thingsboard/bin/install/install.sh'])
+            service_start('thingsboard')
+        else:
+            service_restart('thingsboard')
+        conn.close()
+        open_port(port)
+        status = 'active'
+        message = 'ThingsBoard is running and uses PostgreSQL'
+    except:
+        status = 'blocked'
+        message = 'Access to PostgreSQL with Psycopg2 has failed'
+    status_set(status, message)
     set_flag('thingsboard.started')
 
 @when('thingsboard.started', 'config.changed', 'postgres.master.available')
@@ -90,15 +99,19 @@ def change_configuration(postgres):
 def stop_service():
     service_stop('thingsboard')
     port = config()['port']
-    close_port(config()['port'])
+    close_port(port)
     status_set('blocked', 'Waiting for relation with PostgreSQL')
     set_flag('thingsboard.downloaded')
+    states = ['postgresdatabase.created', 'thingsboardpostgres.connected', 'thingsboard.started']
+    for state in states:
+        clear_flag(state)
 
 ########################################################################
 # Auxiliary methods
 ########################################################################
-def install_thingsboard():
+def download_thingsboard():
     status_set('maintenance', 'Installing ThingsBoard')
+    subprocess.check_call(['sudo', 'pip3', 'install', 'psycopg2-binary'])
     thingsboard_path = '/opt/thingsboard'
     if not os.path.isdir(thingsboard_path):
         os.mkdir(thingsboard_path)
