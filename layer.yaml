@@ -1,2 +1,2 @@
 includes: ['layer:basic', 'layer:java', 'layer:apt', 'interface:pgsql']
-repo: ''
+repo: git@github.com:tengu-team/layer-thingsboard.git
