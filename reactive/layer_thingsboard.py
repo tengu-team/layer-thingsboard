@@ -30,7 +30,6 @@ from charmhelpers.core.hookenv import status_set, open_port, close_port, config,
 @when_not('thingsboard.downloaded')
 def download_service():
     download_thingsboard()
-    #kv.set('initial_state', True)
     status_set('blocked', 'Waiting for relation with PostgreSQL')
     set_flag('thingsboard.downloaded')
 
@@ -47,16 +46,8 @@ def configure_database(postgres):
 def connect_thingsboard(postgres):
     port = config()['port']
     conn_str = postgres.master
-    render(source='thingsboard.yml',
-           target='/etc/thingsboard/conf/thingsboard.yml',
-           context={
-               'port': port,
-               'host': conn_str.host,
-               'psqlport': conn_str.port,
-               'database': conn_str.dbname,
-               'username': conn_str.user,
-               'password': conn_str.password
-           })
+    conf_parameters = [port, conn_str.host, conn_str.port, conn_str.dbname, conn_str.user, conn_str.password]
+    render_conf_file(conf_parameters)
     status_set('maintenance', 'Relation with PostgreSQL has been established')
     set_flag('thingsboardpostgres.connected')
 
@@ -124,16 +115,20 @@ def change_config(conf, conn_str):
     port = conf['port']
     old_port = conf.previous('port')
     if old_port is not None and old_port != port:
-        render(source='thingsboard.yml',
-               target='/etc/thingsboard/conf/thingsboard.yml',
-               context={
-                   'port': port,
-                   'host': conn_str.host,
-                   'psqlport': conn_str.port,
-                   'database': conn_str.dbname,
-                   'username': conn_str.user,
-                   'password': conn_str.password
-               })
+        conf_parameters = [port, conn_str.host, conn_str.port, conn_str.dbname, conn_str.user, conn_str.password]
+        render_conf_file(conf_parameters)
         close_port(old_port)
         open_port(port)
         service_restart('thingsboard')
+
+def render_conf_file(conf_parameters):
+    render(source='thingsboard.yml',
+           target='/etc/thingsboard/conf/thingsboard.yml',
+           context={
+               'port': conf_parameters[0],
+               'host': conf_parameters[1],
+               'psqlport': conf_parameters[2],
+               'database': conf_parameters[3],
+               'username': conf_parameters[4],
+               'password': conf_parameters[5]
+           })
