@@ -85,6 +85,11 @@ def change_configuration(postgres):
     change_config(conf, conn_str)
     status_set('active', 'ThingsBoard is running and uses PostgreSQL')
 
+@when('thingsboard.started', 'http.available')
+def configure_http(http):
+    http.configure(config()['port'])
+    set_flag('http.configured')
+
 @when('thingsboard.started')
 @when_not('postgres.connected')
 def stop_service():

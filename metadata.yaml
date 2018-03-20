@@ -6,6 +6,9 @@ description: |
 tags:
   - monitoring
 subordinate: false
+provides:
+  http:
+    interface: http
 requires:
   postgres:
     interface: pgsql
