@@ -24,7 +24,7 @@ from charmhelpers.core.host import service_start, service_restart, service_stop
 from charmhelpers.core.hookenv import status_set, open_port, close_port, config, local_unit
 
 ########################################################################
-# Installation
+#                         Installation                                 #
 ########################################################################
 @when('java.installed')
 @when_not('thingsboard.downloaded')
@@ -108,10 +108,10 @@ def connect_to_cassandra(cassandra):
     render(source='thingsboard.yml',
            target='/etc/thingsboard/conf/thingsboard.yml',
            context={
-               'database': 'cassandra',
+               'type_database': 'cassandra',
                'cluster_name': cassandra.cluster_name(),
                'cassandra_host': cassandra.host(),
-               'cassandra_port': '9042',
+               'cassandra_port': cassandra.native_transport_port(),
                'use_credential': 'true',
                'cassandra_username': cassandra.username(),
                'cassandra_password': cassandra.password()
@@ -128,7 +128,7 @@ def start_service():
     set_flag('thingsboard.started')
 
 ########################################################################
-# Auxiliary methods
+#                     Auxiliary methods                                #
 ########################################################################
 def download_thingsboard():
     status_set('maintenance', 'Downloading ThingsBoard')
