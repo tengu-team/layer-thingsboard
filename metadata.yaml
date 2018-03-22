@@ -12,4 +12,6 @@ provides:
 requires:
   postgres:
     interface: pgsql
+  cassandra:
+    interface: cassandra
 series: ['xenial']

@@ -108,16 +108,16 @@ coap:
   timeout: "${COAP_TIMEOUT:10000}"
 
 database:
-  type: "${DATABASE_TYPE:sql}" # cassandra OR sql
+  type: "${DATABASE_TYPE:{{database}}}" # cassandra OR sql
 
 # Cassandra driver configuration parameters
 cassandra:
   # Thingsboard cluster name
-  cluster_name: "${CASSANDRA_CLUSTER_NAME:Thingsboard Cluster}"
+  cluster_name: "${CASSANDRA_CLUSTER_NAME:{{cluster_name}}}"
   # Thingsboard keyspace name
   keyspace_name: "${CASSANDRA_KEYSPACE_NAME:thingsboard}"
   # Specify node list
-  url: "${CASSANDRA_URL:127.0.0.1:9042}"
+  url: "${CASSANDRA_URL:{{cassandra_host}}:{{cassandra_port}}}"
   # Enable/disable secure connection
   ssl: "${CASSANDRA_USE_SSL:false}"
   # Enable/disable JMX
@@ -132,11 +132,11 @@ cassandra:
   init_retry_interval_ms: "${CASSANDRA_CLUSTER_INIT_RETRY_INTERVAL_MS:3000}"
 
   # Credential parameters #
-  credentials: "${CASSANDRA_USE_CREDENTIALS:false}"
+  credentials: "${CASSANDRA_USE_CREDENTIALS:{{use_credential}}}"
   # Specify your username
-  username: "${CASSANDRA_USERNAME:}"
+  username: "${CASSANDRA_USERNAME:{{cassandra_username}}}"
   # Specify your password
-  password: "${CASSANDRA_PASSWORD:}"
+  password: "${CASSANDRA_PASSWORD:{{cassandra_password}}}"
 
   # Cassandra cluster connection socket parameters #
   socket:

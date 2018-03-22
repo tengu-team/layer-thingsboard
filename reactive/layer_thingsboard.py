@@ -30,7 +30,7 @@ from charmhelpers.core.hookenv import status_set, open_port, close_port, config,
 @when_not('thingsboard.downloaded')
 def download_service():
     download_thingsboard()
-    status_set('blocked', 'Waiting for relation with PostgreSQL')
+    status_set('blocked', 'Waiting for relation with database')
     set_flag('thingsboard.downloaded')
 
 @when('thingsboard.downloaded', 'postgres.connected')
@@ -102,11 +102,36 @@ def stop_service():
     for state in states:
         clear_flag(state)
 
+@when('thingsboard.downloaded', 'cassandra.available')
+@when_not('thingsboardcassandra.connected')
+def connect_to_cassandra(cassandra):
+    render(source='thingsboard.yml',
+           target='/etc/thingsboard/conf/thingsboard.yml',
+           context={
+               'database': 'cassandra',
+               'cluster_name': cassandra.cluster_name(),
+               'cassandra_host': cassandra.host(),
+               'cassandra_port': '9042',
+               'use_credential': 'true',
+               'cassandra_username': cassandra.username(),
+               'cassandra_password': cassandra.password()
+           })
+    status_set('maintenance', 'Relation with Cassandra has been established')
+    set_flag('thingsboardcassandra.connected')
+
+@when('thingsboardcassandra.connected', 'cassandra.available')
+@when_not('thingsboard.started')
+def start_service():
+    subprocess.check_call(['sudo','/usr/share/thingsboard/bin/install/install.sh'])
+    service_start('thingsboard')
+    status_set('active', 'ThingsBoard is running and uses Cassandra')
+    set_flag('thingsboard.started')
+
 ########################################################################
 # Auxiliary methods
 ########################################################################
 def download_thingsboard():
-    status_set('maintenance', 'Installing ThingsBoard')
+    status_set('maintenance', 'Downloading ThingsBoard')
     subprocess.check_call(['sudo', 'pip3', 'install', 'psycopg2-binary'])
     thingsboard_path = '/opt/thingsboard'
     if not os.path.isdir(thingsboard_path):
