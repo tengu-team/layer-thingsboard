@@ -18,10 +18,13 @@
 import os
 import subprocess
 import charmhelpers.fetch.archiveurl
+from charmhelpers.core import unitdata
 from charmhelpers.core.templating import render
 from charms.reactive import when, when_not, set_flag, clear_flag
 from charmhelpers.core.host import service_start, service_restart, service_stop
 from charmhelpers.core.hookenv import status_set, open_port, close_port, config, local_unit
+
+kv = unitdata.kv()
 
 ########################################################################
 #                         Installation                                 #
@@ -86,28 +89,28 @@ def start_thingsboardpg(postgres):
     status_set(status, message)
     set_flag('thingsboard.started')
 
-@when('thingsboard.started', 'config.changed', 'postgres.master.available')
-def change_configuration_pg(postgres):
-    status_set('maintenance', 'Configuring ThingsBoard')
-    conf = config()
-    conn_str = postgres.master
-    port = conf['port']
-    old_port = conf.previous('port')
-    if old_port is not None and port != old_port:
-        context = {'port': port,
-                   'type_database': 'sql',
-                   'host': conn_str.host,
-                   'psqlport': conn_str.port,
-                   'database': conn_str.dbname,
-                   'username': conn_str.user,
-                   'password': conn_str.password}
-        render(source='thingsboard.yml',
-               target='/etc/thingsboard/conf/thingsboard.yml',
-               context=context)
-        close_port(old_port)
-        open_port(port)
-        service_restart('thingsboard')
-    status_set('active', 'ThingsBoard is running and uses PostgreSQL')
+# @when('thingsboard.started', 'config.changed', 'postgres.master.available')
+# def change_configuration_pg(postgres):
+#     status_set('maintenance', 'Configuring ThingsBoard')
+#     conf = config()
+#     port = conf['port']
+#     old_port = conf.previous('port')
+#     if old_port is not None and port != old_port:
+#         conn_str = postgres.master
+#         context = {'port': port,
+#                    'type_database': 'sql',
+#                    'host': conn_str.host,
+#                    'psqlport': conn_str.port,
+#                    'database': conn_str.dbname,
+#                    'username': conn_str.user,
+#                    'password': conn_str.password}
+#         render(source='thingsboard.yml',
+#                target='/etc/thingsboard/conf/thingsboard.yml',
+#                context=context)
+#         close_port(old_port)
+#         open_port(port)
+#         service_restart('thingsboard')
+#     status_set('active', 'ThingsBoard is running and uses PostgreSQL')
 
 @when('thingsboard.started', 'postgresdatabase.created')
 @when_not('postgres.connected')
@@ -139,7 +142,7 @@ def connect_to_cassandra(cassandra):
     status_set('maintenance', 'Connecting to Cassandra')
     port = config()['port']
     ip_address = cassandra.conversations()[0].get_remote('private-address')
-    context={'port': port,
+    context={'port': str(port),
              'type_database': 'cassandra',
              'cluster_name': cassandra.cluster_name(),
              'cassandra_host': ip_address,
@@ -147,33 +150,32 @@ def connect_to_cassandra(cassandra):
              'use_credentials': 'true',
              'cassandra_username': cassandra.username(),
              'cassandra_password': cassandra.password()}
-    render(source='thingsboard.yml',
-           target='/etc/thingsboard/conf/thingsboard.yml',
-           context=context)
+    render_conf_file(context)
+    parameters = ['type_database', 'cluster_name', 'cassandra_host', 'cassandra_port',
+                  'cassandra_username', 'cassandra_password']
+    for parameter in parameters:
+        kv.set(parameter, context[parameter])
     run_install_script()
     open_port(port)
     status_set('active', 'ThingsBoard is running and uses Cassandra')
     set_flag('thingsboard.started')
 
 @when('thingsboard.started', 'config.changed', 'cassandra.available')
-def change_configuration_cassdb(cassandra):
+def change_conf_cassandra():
     status_set('maintenance', 'Configuring ThingsBoard')
     conf = config()
-    port = conf['port']
+    port = config()['port']
     old_port = conf.previous('port')
-    ip_address = cassandra.conversations()[0].get_remote('private-address')
     if old_port is not None and port != old_port:
-        context={'port': port,
+        context={'port': str(port),
                  'type_database': 'cassandra',
-                 'cluster_name': cassandra.cluster_name(),
-                 'cassandra_host': ip_address,
-                 'cassandra_port': cassandra.native_transport_port(),
-                 'use_credential': 'true',
-                 'cassandra_username': cassandra.username(),
-                 'cassandra_password': cassandra.password()}
-        render(source='thingsboard.yml',
-               target='/etc/thingsboard/conf/thingsboard.yml',
-               context=context)
+                 'cluster_name': kv.get('cluster_name'),
+                 'cassandra_host': kv.get('cassandra_host'),
+                 'cassandra_port': kv.get('cassandra_port'),
+                 'use_credentials': 'true',
+                 'cassandra_username': kv.get('cassandra_username'),
+                 'cassandra_password': kv.get('cassandra_password')}
+        render_conf_file(context)
         close_port(old_port)
         open_port(port)
         service_restart('thingsboard')
@@ -192,6 +194,14 @@ def install_thingsboard():
     fetch_handler.download('https://github.com/thingsboard/thingsboard/releases/download/v1.4/thingsboard-1.4.deb',
                             thingsboard_path + '/thingsboard-1.4.deb')
     subprocess.check_call(['dpkg', '-i', '{}/thingsboard-1.4.deb'.format(thingsboard_path)])
+    context={'port': str(config()['port'])}
+    render_conf_file(context)
+    kv.set('type_database', '')
+
+def render_conf_file(context):
+    render(source='thingsboard.yml',
+           target='/etc/thingsboard/conf/thingsboard.yml',
+           context=context)
 
 def run_install_script():
     subprocess.check_call(['sudo','/usr/share/thingsboard/bin/install/install.sh'])
