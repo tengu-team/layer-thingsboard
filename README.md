@@ -5,8 +5,8 @@ visualization. It allows you to monitor and control your IoT devices.
 
 # Usage
 
-This charm can deploy a single standalone ThingsBoard unit that uses PostgreSQL
-as external database.
+This charm can deploy a single standalone ThingsBoard unit that uses either
+PostgreSQL or Cassandra as external database.
 
 To setup a single standalone service:
 
@@ -14,6 +14,14 @@ To setup a single standalone service:
 juju deploy cs:~tengu-team/thingsboard-0
 juju deploy postgresql
 juju add-relation thingsboard postgresql:db
+```
+
+or
+
+```bash
+juju deploy cs:~tengu-team/thingsboard-0
+juju deploy cs:cassandra
+juju add-relation thingsboard cassandra:database
 ```
 
 # Contact Information
