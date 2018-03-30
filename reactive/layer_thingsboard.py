@@ -54,7 +54,7 @@ def configure_database(postgres):
     set_flag('postgresdatabase.created')
 
 @when('postgresdatabase.created', 'postgres.master.available')
-@when_not('thingsboardpostgres.connected')
+@when_not('thingsboard.postgres.connected')
 def connect_thingsboard(postgres):
     conn_str = postgres.master
     context = {'port': str(config()['port']),
@@ -65,10 +65,11 @@ def connect_thingsboard(postgres):
                'username': conn_str.user,
                'password': conn_str.password}
     render_conf_file(context)
-    status_set('maintenance', 'Relation with PostgreSQL has been established')
-    set_flag('thingsboardpostgres.connected')
+    kv.set('database_parameters', context)
+    status_set('maintenance', 'Connecting to PostgreSQL')
+    set_flag('thingsboard.postgres.connected')
 
-@when('thingsboardpostgres.connected', 'postgres.master.available')
+@when('thingsboard.postgres.connected', 'postgres.master.available')
 @when_not('thingsboard.started')
 def start_thingsboardpg(postgres):
     import psycopg2
@@ -94,40 +95,6 @@ def start_thingsboardpg(postgres):
     status_set(status, message)
     set_flag('thingsboard.started')
 
-@when('thingsboard.started', 'config.changed', 'postgres.master.available')
-@when_not('cassandra.available')
-def change_conf_postgres(postgres):
-    status_set('maintenance', 'Configuring ThingsBoard')
-    conf = config()
-    port = conf['port']
-    old_port = conf.previous('port')
-    if old_port is not None and port != old_port:
-        conn_str = postgres.master
-        context = {'port': str(port),
-                   'type_database': 'sql',
-                   'host': conn_str.host,
-                   'psqlport': conn_str.port,
-                   'database': conn_str.dbname,
-                   'username': conn_str.user,
-                   'password': conn_str.password}
-        render_conf_file(context)
-        close_port(old_port)
-        open_port(port)
-        service_restart('thingsboard')
-    status_set('active', 'ThingsBoard is running and uses PostgreSQL')
-
-@when('thingsboard.started', 'postgresdatabase.created')
-@when_not('postgres.connected')
-def stop_service():
-    service_stop('thingsboard')
-    port = config()['port']
-    close_port(port)
-    status_set('blocked', 'Waiting for relation with database')
-    set_flag('thingsboard.installed')
-    states = ['postgresdatabase.created', 'thingsboardpostgres.connected', 'thingsboard.started']
-    for state in states:
-        clear_flag(state)
-
 ############################################################################
 #                             HTTP interface                               #
 ############################################################################
@@ -141,7 +108,7 @@ def configure_http(http):
 #                       Integration with Cassandra                         #
 ############################################################################
 @when('thingsboard.installed', 'cassandra.available')
-@when_not('thingsboard.started', 'postgres.connected')
+@when_not('thingsboard.cassandra.connected', 'postgres.connected')
 def connect_to_cassandra(cassandra):
     status_set('maintenance', 'Connecting to Cassandra')
     port = config()['port']
@@ -155,27 +122,58 @@ def connect_to_cassandra(cassandra):
              'cassandra_username': cassandra.username(),
              'cassandra_password': cassandra.password()}
     render_conf_file(context)
-    kv.set('cassandra_parameters', context)
+    kv.set('database_parameters', context)
+    set_flag('thingsboard.cassandra.connected')
+
+@when('thingsboard.cassandra.connected', 'cassandra.available')
+@when_not('thingsboard.started')
+def start_thingsboardcassdb():
     run_install_script()
-    open_port(port)
+    open_port(config()['port'])
     status_set('active', 'ThingsBoard is running and uses Cassandra')
     set_flag('thingsboard.started')
 
-@when('thingsboard.started', 'config.changed', 'cassandra.available')
-@when_not('postgres.connected')
-def change_conf_cassandra():
+############################################################################
+#                              Common methods                              #
+############################################################################
+@when('thingsboard.started', 'config.changed')
+def change_config():
     status_set('maintenance', 'Configuring ThingsBoard')
     conf = config()
     port = conf['port']
     old_port = conf.previous('port')
     if old_port is not None and port != old_port:
-        context = kv.get('cassandra_parameters')
+        context = kv.get('database_parameters')
         context['port'] = str(port)
         render_conf_file(context)
         close_port(old_port)
         open_port(port)
         service_restart('thingsboard')
-    status_set('active', 'ThingsBoard is running and uses Cassandra')
+    if context['type_database'] == 'sql':
+        database = 'PostgreSQL'
+    else:
+        database = 'Cassandra'
+    status_set('active', 'ThingsBoard is running and uses {}'.format(database))
+
+@when('thingsboard.started')
+@when_not('postgres.connected', 'cassandra.available')
+def stop_service():
+    service_stop('thingsboard')
+    close_port(config()['port'])
+    context = kv.get('database_parameters')
+    if context['type_database'] == 'sql':
+        states = ['postgresdatabase.created', 'thingsboard.postgres.connected', 'thingsboard.started']
+    else:
+        states = ['thingsboard.cassandra.connected', 'thingsboard.started']
+    for state in states:
+        clear_flag(state)
+    status_set('blocked', 'Waiting for relation with database')
+
+@when('postgres.connected', 'cassandra.available')
+def set_blocked():
+    service_stop('thingsboard')
+    close_port(config()['port'])
+    status_set('blocked', 'Please establish relation with only one database')
 
 ############################################################################
 #                          Auxiliary methods                               #
