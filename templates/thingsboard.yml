@@ -35,9 +35,9 @@ server:
 # Zookeeper connection parameters. Used for service discovery.
 zk:
   # Enable/disable zookeeper discovery service.
-  enabled: "${ZOOKEEPER_ENABLED:false}"
+  enabled: "${ZOOKEEPER_ENABLED:{{zk_enabled}}}"
   # Zookeeper connect string
-  url: "${ZOOKEEPER_URL:localhost:2181}"
+  url: "${ZOOKEEPER_URL:{{zk_urls}}}"
   # Zookeeper retry interval in milliseconds
   retry_interval_ms: "${ZOOKEEPER_RETRY_INTERVAL_MS:3000}"
   # Zookeeper connection timeout in milliseconds
@@ -49,7 +49,7 @@ zk:
 
 # RPC connection parameters. Used only in cluster mode only.
 rpc:
-  bind_host: "${RPC_HOST:localhost}"
+  bind_host: "${RPC_HOST:{{rpc_host}}}"
   bind_port: "${RPC_PORT:9001}"
 
 # Clustering properties related to consistent-hashing. See architecture docs for more details.
@@ -138,11 +138,11 @@ database:
 # Cassandra driver configuration parameters
 cassandra:
   # Thingsboard cluster name
-  cluster_name: "${CASSANDRA_CLUSTER_NAME:{{cluster_name}}}"
+  cluster_name: "${CASSANDRA_CLUSTER_NAME:{{cassandra_cluster_name}}}"
   # Thingsboard keyspace name
   keyspace_name: "${CASSANDRA_KEYSPACE_NAME:thingsboard}"
   # Specify node list
-  url: "${CASSANDRA_URL:{{cassandra_host}}:{{cassandra_port}}}"
+  url: "${CASSANDRA_URL:{{cassandra_list_nodes}}}"
   # Enable/disable secure connection
   ssl: "${CASSANDRA_USE_SSL:false}"
   # Enable/disable JMX
@@ -278,9 +278,9 @@ spring:
    database-platform: "${SPRING_JPA_DATABASE_PLATFORM:org.hibernate.dialect.PostgreSQLDialect}"
  datasource:
    driverClassName: "${SPRING_DRIVER_CLASS_NAME:org.postgresql.Driver}"
-   url: "${SPRING_DATASOURCE_URL:jdbc:postgresql://{{host}}:{{psqlport}}/{{database}}}"
-   username: "${SPRING_DATASOURCE_USERNAME:{{username}}}"
-   password: "${SPRING_DATASOURCE_PASSWORD:{{password}}}"
+   url: "${SPRING_DATASOURCE_URL:jdbc:postgresql://{{postgres_host}}:{{postgres_port}}/{{postgres_database}}}"
+   username: "${SPRING_DATASOURCE_USERNAME:{{postgres_username}}}"
+   password: "${SPRING_DATASOURCE_PASSWORD:{{postgres_password}}}"
 
 # Audit log parameters
 audit_log:

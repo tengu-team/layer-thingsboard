@@ -22,7 +22,7 @@ from charmhelpers.core import unitdata
 from charmhelpers.core.templating import render
 from charms.reactive import when, when_not, set_flag, clear_flag
 from charmhelpers.core.host import service_start, service_restart, service_stop
-from charmhelpers.core.hookenv import status_set, open_port, close_port, config, local_unit
+from charmhelpers.core.hookenv import status_set, open_port, close_port, config, service_name, unit_private_ip
 
 kv = unitdata.kv()
 
@@ -46,78 +46,54 @@ def change_configuration():
 #                     Integration with PostgreSQL                          #
 ############################################################################
 @when('thingsboard.installed', 'postgres.connected')
-@when_not('postgresdatabase.created', 'cassandra.available')
-def configure_database(postgres):
-    database = local_unit().replace('/', '_')
+@when_not('thingsboard.pgdatabase.created', 'cassandra.available')
+def create_database(postgres):
+    database = service_name()
     postgres.set_database(database)
     status_set('maintenance', 'Postgres database "{}" has been created'.format(database))
-    set_flag('postgresdatabase.created')
+    set_flag('thingsboard.pgdatabase.created')
 
-@when('postgresdatabase.created', 'postgres.master.available')
-@when_not('thingsboard.postgres.connected')
-def connect_thingsboard(postgres):
-    conn_str = postgres.master
-    context = {'port': str(config()['port']),
-               'type_database': 'sql',
-               'host': conn_str.host,
-               'psqlport': conn_str.port,
-               'database': conn_str.dbname,
-               'username': conn_str.user,
-               'password': conn_str.password}
-    render_conf_file(context)
-    kv.set('database_parameters', context)
-    status_set('maintenance', 'Connecting to PostgreSQL')
-    set_flag('thingsboard.postgres.connected')
-
-@when('thingsboard.postgres.connected', 'postgres.master.available')
+@when('thingsboard.pgdatabase.created', 'postgres.master.available')
 @when_not('thingsboard.started')
 def start_thingsboardpg(postgres):
-    import psycopg2
-    port = config()['port']
+    status_set('maintenance', 'Configuring ThingsBoard')
     conn_str = postgres.master
-    try:
-        conn = psycopg2.connect(database=conn_str.dbname, user = conn_str.user,
-                                password = conn_str.password, host = conn_str.host, port = conn_str.port)
-        cur = conn.cursor()
-        cur.execute("select relname from pg_class where relkind='r' and relname !~ '^(pg_|sql_)';")
-        tables = cur.fetchall()
-        if len(tables) == 0:
-            run_install_script()
-        else:
-            service_restart('thingsboard')
-        conn.close()
-        open_port(port)
-        status = 'active'
-        message = 'ThingsBoard is running and uses PostgreSQL'
-    except:
-        status = 'blocked'
-        message = 'Access to PostgreSQL with Psycopg2 has failed'
-    status_set(status, message)
+    context = {'port': str(config()['port']),
+               'zk_enabled': 'false',
+               'zk_urls': 'localhost:2181',
+               'rpc_host': unit_private_ip(),
+               'type_database': 'sql',
+               'postgres_host': conn_str.host,
+               'postgres_port': conn_str.port,
+               'postgres_database': conn_str.dbname,
+               'postgres_username': conn_str.user,
+               'postgres_password': conn_str.password}
+    render_conf_file(context)
+    kv.set('database_parameters', context)
+    run_install_script()
+    open_port(config()['port'])
+    status_set('active', 'ThingsBoard is running and uses PostgreSQL')
     set_flag('thingsboard.started')
-
-############################################################################
-#                             HTTP interface                               #
-############################################################################
-@when('thingsboard.started', 'http.available')
-@when_not('http.configured')
-def configure_http(http):
-    http.configure(config()['port'])
-    set_flag('http.configured')
 
 ############################################################################
 #                       Integration with Cassandra                         #
 ############################################################################
 @when('thingsboard.installed', 'cassandra.available')
 @when_not('thingsboard.cassandra.connected', 'postgres.connected')
-def connect_to_cassandra(cassandra):
-    status_set('maintenance', 'Connecting to Cassandra')
+def configure_cassandra(cassandra):
+    status_set('maintenance', 'Configuring ThingsBoard')
     port = config()['port']
-    ip_address = cassandra.conversations()[0].get_remote('private-address')
+    list_nodes = ''
+    for conv in cassandra.conversations():
+        list_nodes += '{}:{}, '.format(conv.get_remote('private-address'), conv.get_remote('native_transport_port'))
+    list_nodes = list_nodes[:-2]
     context={'port': str(port),
+             'zk_enabled': 'false',
+             'zk_urls': 'localhost:2181',
+             'rpc_host': unit_private_ip(),
              'type_database': 'cassandra',
-             'cluster_name': cassandra.cluster_name(),
-             'cassandra_host': ip_address,
-             'cassandra_port': cassandra.native_transport_port(),
+             'cassandra_cluster_name': cassandra.cluster_name(),
+             'cassandra_list_nodes': list_nodes,
              'use_credentials': 'true',
              'cassandra_username': cassandra.username(),
              'cassandra_password': cassandra.password()}
@@ -125,7 +101,7 @@ def connect_to_cassandra(cassandra):
     kv.set('database_parameters', context)
     set_flag('thingsboard.cassandra.connected')
 
-@when('thingsboard.cassandra.connected', 'cassandra.available')
+@when('thingsboard.cassandra.connected')
 @when_not('thingsboard.started')
 def start_thingsboardcassdb():
     run_install_script()
@@ -136,6 +112,28 @@ def start_thingsboardcassdb():
 ############################################################################
 #                              Common methods                              #
 ############################################################################
+@when('thingsboard.started', 'zookeeper.ready')
+@when_not('thingsboard.zookeeper.connected')
+def configure_zookeeper(zookeeper):
+    status_set('maintenance', 'Configuring ThingsBoard')
+    zk_urls = ''
+    for zk in zookeeper.zookeepers():
+        zk_urls += '{}:{}, '.format(zk['host'], zk['port'])
+    zk_urls = zk_urls[:-2]
+    context = kv.get('database_parameters')
+    context['zk_enabled'] = 'true'
+    context['zk_urls'] = zk_urls
+    render_conf_file(context)
+    kv.set('database_parameters', context)
+    open_port(9001)
+    service_restart('thingsboard')
+    if context['type_database'] == 'sql':
+        database = 'PostgreSQL'
+    else:
+        database = 'Cassandra'
+    status_set('active', 'ThingsBoard is running and uses {} & Zookeeper'.format(database))
+    set_flag('thingsboard.zookeeper.connected')
+
 @when('thingsboard.started', 'config.changed')
 def change_config():
     status_set('maintenance', 'Configuring ThingsBoard')
@@ -146,6 +144,7 @@ def change_config():
         context = kv.get('database_parameters')
         context['port'] = str(port)
         render_conf_file(context)
+        kv.set('database_parameters', context)
         close_port(old_port)
         open_port(port)
         service_restart('thingsboard')
@@ -157,30 +156,43 @@ def change_config():
 
 @when('thingsboard.started')
 @when_not('postgres.connected', 'cassandra.available')
-def stop_service():
+def stop_thingsboard():
     service_stop('thingsboard')
     close_port(config()['port'])
     context = kv.get('database_parameters')
     if context['type_database'] == 'sql':
-        states = ['postgresdatabase.created', 'thingsboard.postgres.connected', 'thingsboard.started']
+        states = ['thingsboard.pgdatabase.created', 'thingsboard.started']
     else:
         states = ['thingsboard.cassandra.connected', 'thingsboard.started']
     for state in states:
         clear_flag(state)
     status_set('blocked', 'Waiting for relation with database')
 
-@when('postgres.connected', 'cassandra.available')
-def set_blocked():
-    service_stop('thingsboard')
-    close_port(config()['port'])
-    status_set('blocked', 'Please establish relation with only one database')
+@when('thingsboard.zookeeper.connected')
+@when_not('zookeeper.ready')
+def inactivate_zookeeper():
+    context = kv.get('database_parameters')
+    context['zk_enabled'] = 'false'
+    context['zk_urls'] = 'localhost:2181'
+    render_conf_file(context)
+    kv.set('database_parameters', context)
+    close_port(9001)
+    clear_flag('thingsboard.zookeeper.connected')
+
+############################################################################
+#                             HTTP interface                               #
+############################################################################
+@when('thingsboard.started', 'http.available')
+@when_not('http.configured')
+def configure_http(http):
+    http.configure(config()['port'])
+    set_flag('http.configured')
 
 ############################################################################
 #                          Auxiliary methods                               #
 ############################################################################
 def install_thingsboard():
     status_set('maintenance', 'Installing ThingsBoard')
-    subprocess.check_call(['sudo', 'pip3', 'install', 'psycopg2-binary'])
     thingsboard_path = '/opt/thingsboard'
     if not os.path.isdir(thingsboard_path):
         os.mkdir(thingsboard_path)

@@ -1,2 +1,3 @@
-includes: ['layer:basic', 'layer:java', 'layer:apt', 'interface:pgsql', 'interface:http', 'interface:cassandra']
+includes: ['layer:apt', 'layer:basic', 'layer:java', 'layer:leadership', 'interface:cassandra',
+           'interface:http', 'interface:pgsql', 'interface:zookeeper']
 repo: git@github.com:tengu-team/layer-thingsboard.git

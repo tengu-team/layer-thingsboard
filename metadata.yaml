@@ -14,4 +14,6 @@ requires:
     interface: pgsql
   cassandra:
     interface: cassandra
+  zookeeper:
+    interface: zookeeper
 series: ['xenial']
