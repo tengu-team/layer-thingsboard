@@ -1,8 +1,9 @@
 name: thingsboard
-summary: This charm will install ThingsBoard.
+summary: This charm installs ThingsBoard either in stand-alone mode or in cluster mode.
 maintainer: Dixan Peña Peña <dixan.pena@tengu.io>
 description: |
-   ThingsBoard is...
+   ThingsBoard is is an open-source IoT platform for data visualization. It allows
+   you to monitor and control your IoT devices.
 tags:
   - monitoring
 subordinate: false

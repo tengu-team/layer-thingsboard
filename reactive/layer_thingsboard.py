@@ -127,11 +127,8 @@ def configure_zookeeper(zookeeper):
     kv.set('database_parameters', context)
     open_port(9001)
     service_restart('thingsboard')
-    if context['type_database'] == 'sql':
-        database = 'PostgreSQL'
-    else:
-        database = 'Cassandra'
-    status_set('active', 'ThingsBoard is running and uses {} & Zookeeper'.format(database))
+    relations = determine_relations(context)
+    status_set('active', 'ThingsBoard is running and uses {}'.format(relations))
     set_flag('thingsboard.zookeeper.connected')
 
 @when('thingsboard.started', 'config.changed')
@@ -140,6 +137,7 @@ def change_config():
     conf = config()
     port = conf['port']
     old_port = conf.previous('port')
+    relations = ''
     if old_port is not None and port != old_port:
         context = kv.get('database_parameters')
         context['port'] = str(port)
@@ -148,11 +146,8 @@ def change_config():
         close_port(old_port)
         open_port(port)
         service_restart('thingsboard')
-    if context['type_database'] == 'sql':
-        database = 'PostgreSQL'
-    else:
-        database = 'Cassandra'
-    status_set('active', 'ThingsBoard is running and uses {}'.format(database))
+        relations = determine_relations(context)
+    status_set('active', 'ThingsBoard is running and uses {}'.format(relations))
 
 @when('thingsboard.started')
 @when_not('postgres.connected', 'cassandra.available')
@@ -177,6 +172,8 @@ def inactivate_zookeeper():
     render_conf_file(context)
     kv.set('database_parameters', context)
     close_port(9001)
+    relations = determine_relations(context)
+    status_set('active', 'ThingsBoard is running and uses {}'.format(relations))
     clear_flag('thingsboard.zookeeper.connected')
 
 ############################################################################
@@ -211,3 +208,12 @@ def render_conf_file(context):
 def run_install_script():
     subprocess.check_call(['sudo','/usr/share/thingsboard/bin/install/install.sh'])
     service_start('thingsboard')
+
+def determine_relations(context):
+    if context['type_database'] == 'sql':
+        relations = 'PostgreSQL'
+    else:
+        relations = 'Cassandra'
+    if context['zk_enabled'] == 'true':
+        relations += ' & Zookeeper'
+    return relations
