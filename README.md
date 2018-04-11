@@ -24,6 +24,21 @@ juju deploy cs:cassandra
 juju add-relation thingsboard cassandra:database
 ```
 
+## Cluster
+
+New units can be added to scale up:
+
+```bash
+juju add-unit thingsboard
+```
+
+Moreover, Zookeeper is required for the cluster coordination:
+
+```bash
+juju deploy cs:zookeeper
+juju add-relation thingsboard zookeeper
+```
+
 # Contact Information
 
 ## Authors
